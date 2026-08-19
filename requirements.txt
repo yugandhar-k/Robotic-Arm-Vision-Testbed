@@ -1,0 +1,6 @@
+# Simulation + rendering stack for the eye-in-hand classification testbed.
+# Versions pinned to what the environment was verified against.
+mujoco==3.9.0
+glfw==2.10.0
+numpy==1.26.4
+pillow==11.1.0

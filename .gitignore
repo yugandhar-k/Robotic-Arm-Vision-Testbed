@@ -1,0 +1,17 @@
+# Generated dataset - regenerate with `python run_sim.py --dataset N`
+# (see data/README.md). Never committed: it is reproducible from the seed.
+data/captures/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
