@@ -2,6 +2,12 @@
 # (see data/README.md). Never committed: it is reproducible from the seed.
 data/captures/
 
+# Trained model checkpoints - regenerate with `python -m src.train ...`
+# (see src/train.py). Not committed: the small results/*.json files they produce
+# are what's kept, since those are what the README's numbers come from.
+checkpoints/*.pt
+checkpoints/*.joblib
+
 # Python
 __pycache__/
 *.py[cod]
@@ -15,3 +21,4 @@ env/
 .idea/
 .DS_Store
 Thumbs.db
+.tools/

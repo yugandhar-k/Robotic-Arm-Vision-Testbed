@@ -1,6 +1,22 @@
-# Simulation + rendering stack for the eye-in-hand classification testbed.
-# Versions pinned to what the environment was verified against.
+# Simulation + rendering stack for the eye-in-hand classification testbed, plus the
+# classifier benchmark (src/). Versions pinned to what the environment was verified
+# against.
 mujoco==3.9.0
 glfw==2.10.0
 numpy==1.26.4
 pillow==11.1.0
+
+# Classification benchmark: CNN (torch), classical HOG+Hu-moment shape descriptors
+# (opencv) + SVM (scikit-learn), cross-validation and metrics (scikit-learn),
+# figures (matplotlib), checkpoint persistence for the SVM pipeline (joblib), paired
+# significance tests (scipy).
+torch==2.3.1
+scikit-learn==1.6.1
+opencv-python==4.10.0.84
+matplotlib==3.9.0
+joblib==1.4.2
+scipy==1.15.2
+
+# Paper manuscript generation (paper/build_paper.py) - optional, not needed to
+# reproduce the benchmark itself.
+python-docx==1.2.0
