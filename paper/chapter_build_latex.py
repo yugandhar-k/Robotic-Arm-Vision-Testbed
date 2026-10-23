@@ -33,6 +33,10 @@ SWEEP = data["desync_sweep"]
 SINGLE = data["single_arm_lift"]
 LID1 = data["lid_close_one_hand"]
 LID2 = data["lid_close_two_hand"]
+VB = data.get("vision_balance", {})
+VB_CLOSED = VB.get("closed_loop", {})
+VB_OPEN = VB.get("open_loop", {})
+VB_SHIFT = VB.get("closed_loop_disturbed", {})
 
 
 def desync_at(lag):
@@ -95,6 +99,13 @@ raw(r"\item An honest negative result: closing a press-fit lid on a can --- a te
     "``two-hand'' task --- is in fact done cleanly by one arm, because the table "
     "back-stops the can; the naive two-arm version is worse, not better. This sharpens a "
     "small taxonomy of when a second hand is genuinely necessary.")
+raw(r"\item A vision-guided cooperative-balancing task that closes the control loop through "
+    "the platform's own fixed camera: the two arms hold a short tray carrying a free ball "
+    "and keep the ball centred by tilting the tray cooperatively. Visual feedback cancels "
+    f"the tray's inherent tilt bias (ball held to {VB_CLOSED.get('settle_abs_offset_mm', 0):.0f}~mm "
+    f"from centre versus {VB_OPEN.get('settle_abs_offset_mm', 0):.0f}~mm with the loop open) "
+    "and rejects an unmodelled centre-of-mass shift. We identify and fix the closed-chain "
+    "instability this continuous coordination provokes with a joint-space slew limit.")
 raw(r"\end{itemize}")
 
 # ---------------------------------------------------------------------------
@@ -161,6 +172,31 @@ para(
     "both a two-arm version and a one-arm version (the lid arm alone, the can left free "
     "standing) and measure, in each, whether the lid ends up seated and centred and "
     "whether the can is displaced.")
+subsection("Vision-guided cooperative balancing")
+para(
+    "The third task closes a control loop between the two arms and the platform's fixed "
+    "camera, and is the chapter's main step beyond open-loop coordination. The two arms "
+    "grasp two posts on a short tray and lift it; a ball rolls freely on the tray. The "
+    "objective is to keep the ball at the tray's centre. This is a bimanual ball-and-beam: "
+    "the control variable is the tray's tilt, and that tilt is produced only by the two "
+    "arms commanding different grip heights --- neither arm can both hold the tray steady "
+    "and tilt it alone, so the control action is irreducibly cooperative. The loop is "
+    "closed through perception: each control tick the ball is segmented in the fixed "
+    "top-down camera, its centroid back-projected through the rendered depth to a world "
+    "position, and the offset from the (proprioceptively known) tray centre drives a PID "
+    "law whose output is the differential grip height. The controller never sees the "
+    "ball's true state, only its vision estimate.")
+para(
+    "This task also exposes a failure mode absent from the open-loop lifts. Two stiff, "
+    "independently position-controlled arms rigidly sharing one payload form an "
+    "over-constrained closed chain; re-solving each arm's inverse kinematics to a freshly "
+    "commanded pose every tick injects energy at the grip contacts, and the chain diverges "
+    "within a few seconds even though a static tilt is perfectly stable. The fix is a "
+    "joint-space slew limit: the applied joint targets ramp toward the inverse-kinematics "
+    "solution at a bounded rate, keeping the shared grasp in its stick regime. With it, the "
+    "controller runs indefinitely. As an unmodelled disturbance we apply a transient pitch "
+    "torque to the tray --- a centre-of-mass shift, as if a load slid to one side --- and "
+    "measure how the ball is driven off centre and recovered.")
 
 # ---------------------------------------------------------------------------
 section("Experiments and Results")
@@ -239,6 +275,50 @@ Two hands (one holds the can) & """ + f"{LID2['lid_centre_err_mm']:.1f} & {LID2[
 \end{tabular}
 \end{table}""")
 
+subsection("Vision-guided balancing")
+raw(
+    "Closing the loop through vision transforms the task. With the arms simply holding the "
+    f"tray at a fixed, nominally level pose, the ball rolls to the downhill rail and rests "
+    f"{VB_OPEN.get('settle_abs_offset_mm', 0):.0f}~mm off centre: a small, unmodelled tilt "
+    "bias in the shared grasp is enough to lose it, and nothing corrects it. With the "
+    "vision loop closed, the same bias is cancelled and the ball is held "
+    f"{VB_CLOSED.get('settle_abs_offset_mm', 0):.0f}~mm from centre --- a "
+    f"{VB_OPEN.get('settle_abs_offset_mm', 1) / max(VB_CLOSED.get('settle_abs_offset_mm', 1), 1e-9):.0f}"
+    + r"$\times$ reduction --- indefinitely (Table~\ref{tab:balance}, Figure~\ref{fig:balance}). "
+    "When a transient centre-of-mass shift is then applied, it drives the ball to a peak of "
+    f"{VB_SHIFT.get('peak_after_disturb_mm', 0):.0f}~mm off centre, from which the "
+    + ("controller recovers to within the re-centred band in "
+       f"{VB_SHIFT.get('recovery_time_s', 0):.1f}~s"
+       if VB_SHIFT.get('recovery_time_s', -1) >= 0 else
+       "controller drives it back toward centre")
+    + f" and settles at {VB_SHIFT.get('settle_abs_offset_mm', 0):.0f}~mm; the open loop has "
+    "no such recovery. Balancing the ball is, like carrying the payload, a genuinely "
+    "cooperative act --- but here the coordination is continuous and closed through "
+    "perception rather than scripted in time.")
+raw(r"""\begin{table}[t]
+\centering
+\caption{Vision-guided cooperative balancing: ball offset from the tray centre
+(lower is better).}
+\label{tab:balance}
+\begin{tabular}{lcc}
+\hline
+Condition & Settled offset (mm) & Behaviour \\
+\hline
+Open loop (level hold) & """ + f"{VB_OPEN.get('settle_abs_offset_mm', 0):.0f}" + r""" & rolls to the rail \\
+Closed loop (vision) & """ + f"{VB_CLOSED.get('settle_abs_offset_mm', 0):.0f}" + r""" & held at centre \\
+Closed loop, CoM shift & """ + f"{VB_SHIFT.get('settle_abs_offset_mm', 0):.0f}" + r""" (peak """ + f"{VB_SHIFT.get('peak_after_disturb_mm', 0):.0f}" + r""") & rejected, re-centred \\
+\hline
+\end{tabular}
+\end{table}""")
+raw(r"""\begin{figure}[t]
+\centering
+\includegraphics[width=0.82\linewidth]{figures/bimanual_ball_balance.png}
+\caption{Vision-guided bimanual ball-balancing. Open loop (grey) the ball rolls to the
+rail and stays; closed loop (blue) it is driven to the centre and held; under a transient
+centre-of-mass shift (orange, shaded interval) it is knocked off centre and re-centred.}
+\label{fig:balance}
+\end{figure}""")
+
 # ---------------------------------------------------------------------------
 section("Discussion")
 para(
@@ -253,6 +333,16 @@ para(
     "demands is itself of a specific kind: tight spatio-temporal synchronization on a "
     "shared rigid body, distinct from the looser role-differentiation (one holds, one "
     "acts) that the lid task would have needed had the world not helped.")
+para(
+    "The balancing task adds a third kind of coordination to this picture: continuous, "
+    "closed-loop, and driven by perception rather than by a clock. It also surfaces a "
+    "property of closed-chain bimanual control worth stating plainly --- that the stability "
+    "of two stiff position-controlled arms on a shared rigid body depends not on where they "
+    "hold it but on how fast they are allowed to change their hold. A static cooperative "
+    "grasp is stable; the same grasp driven by an unrate-limited controller is not. The "
+    "joint-space slew limit that resolves this is a one-line change with an outsized effect, "
+    "and it is the kind of detail that separates a controller that works in a figure from "
+    "one that runs indefinitely.")
 
 # ---------------------------------------------------------------------------
 section("Limitations and Future Work")
@@ -267,6 +357,15 @@ raw(r"\item A third genuinely two-hand regime --- handover across a partitioned 
 raw(r"\item Screw (threaded) lid closing, which genuinely needs counter-torque and hence "
     "two hands, is left to future work because it requires continuous rotational contact "
     "and finger regrasping that rigid-body position control does not capture cleanly.")
+raw(r"\item The balancing tray is short, so the controller rejects a slowly developing "
+    "centre-of-mass shift but not a sharp impulsive shove, which carries the ball across "
+    "the small workspace to the rail before the loop can respond. A longer beam, a faster "
+    "effective control bandwidth, or an impedance rather than position inner loop would "
+    "widen the class of disturbances rejected; the present result is deliberately the "
+    "robust, reproducible one.")
+raw(r"\item The balance loop regulates a single tilt axis against a scalar ball offset; "
+    "full tray-pose stabilisation (both tilt axes and height) against a two-dimensional "
+    "visual measurement of the payload is a natural generalisation.")
 raw(r"\item The two arms do not yet share a collision-avoidance layer for arbitrarily "
     "overlapping reach; the present tasks keep each arm's working volume largely "
     "separate. A reservation-based deconfliction layer is the clear extension for dense "
@@ -284,7 +383,12 @@ para(
     "time, a canonical ``two-hand'' task, closing a lid, turns out to need only one hand "
     "once the environment is allowed to help. The second finding disciplines the first: a "
     "second hand earns its place only when it supplies a constraint nothing else can, and "
-    "when it does, the coordination it demands can be stated, measured, and designed for.")
+    "when it does, the coordination it demands can be stated, measured, and designed for. "
+    "Finally, closing the loop through the platform's own camera lets the two arms balance "
+    "a ball on a tray they jointly hold, cancelling the grasp's tilt bias and rejecting a "
+    "centre-of-mass shift --- extending the study from scripted, feed-forward coordination "
+    "to continuous, perception-driven cooperation, and showing that the stability of such a "
+    "closed chain hinges on rate-limiting how quickly the arms revise their shared hold.")
 
 document = (r"""\documentclass[runningheads]{llncs}
 \usepackage[T1]{fontenc}
@@ -311,10 +415,16 @@ too wide for one gripper and mass-heavy in the middle --- level to within
 smoothly and quantifiably as the two arms are desynchronized. Second, an apparently
 two-hand task --- closing a press-fit lid on a can --- is in fact done cleanly by one
 hand, because the table supplies the constraint the second hand would have, while the
-naive two-arm attempt is worse. Together these results give a simple, measured test for
-when a second hand is genuinely required and what coordination it then demands.
+naive two-arm attempt is worse. Third, closing a control loop through the platform's fixed
+camera, two arms balance a ball on a tray they jointly hold: visual feedback cancels the
+grasp's tilt bias (the ball held to """ + f"{VB_CLOSED.get('settle_abs_offset_mm', 0):.0f}" + r"""~mm
+from centre versus """ + f"{VB_OPEN.get('settle_abs_offset_mm', 0):.0f}" + r"""~mm open-loop)
+and rejects an unmodelled centre-of-mass shift, once a joint-space slew limit is introduced
+to stop the over-constrained closed chain from diverging under continuous control. Together
+these results give a simple, measured test for when a second hand is genuinely required and
+what coordination --- scripted or closed-loop --- it then demands.
 \keywords{dual-arm manipulation \and bimanual coordination \and cooperative lifting \and
-closed-chain control \and robot simulation.}
+visual servoing \and closed-chain control \and robot simulation.}
 \end{abstract}
 
 """ + "\n".join(parts) + r"""
@@ -344,7 +454,8 @@ def main():
     CH_DIR.mkdir(parents=True, exist_ok=True)
     CH_FIG_DIR.mkdir(parents=True, exist_ok=True)
     (CH_DIR / "chapter.tex").write_text(document, encoding="utf-8")
-    for fig in ["bimanual_desync_sweep.png", "bimanual_tilt_comparison.png"]:
+    for fig in ["bimanual_desync_sweep.png", "bimanual_tilt_comparison.png",
+                "bimanual_ball_balance.png"]:
         src = FIGURES / fig
         if src.exists():
             shutil.copy(src, CH_FIG_DIR / fig)

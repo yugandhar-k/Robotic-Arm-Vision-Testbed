@@ -903,6 +903,10 @@ python dual_arm.py                     # live viewer of the two-arm rig
 python bimanual.py                     # run the two bimanual tasks headless (metrics)
 python bimanual.py --view              # watch the cooperative lift live
 python bimanual.py --view --desync 0.4 # watch it see-saw when the arms desynchronize
+python ball_balance.py                 # vision-guided ball-balancing (metrics)
+python ball_balance.py --view          # watch the closed-loop balancing live
+python ball_balance.py --view --push   # watch it reject a centre-of-mass shift
+python ball_balance.py --view --open-loop  # watch the ball roll to the rail (no feedback)
 python bimanual_benchmark.py           # full benchmark -> results/ + figures/
 python paper/chapter_build_latex.py --tectonic .tools/tectonic.exe   # build the chapter
 ```
@@ -935,6 +939,41 @@ actually *worse* (the arms contend for the same can and knock it 124 mm aside). 
 sharpens the first result: **a second hand earns its place only when it supplies a
 constraint neither the first hand nor the world can** — which the oversized-payload lift
 needs (nothing holds a payload in flight) and the lid close does not.
+
+**Task 3 — vision-guided ball-balancing (closed-loop cooperation).** The first two tasks are
+*feed-forward*: scripted trajectories, coordinated in time. The third closes a control loop
+between the two arms and the platform's own fixed camera. The arms jointly hold a short tray
+with a **free ball rolling on it**, and keep the ball centred by tilting the tray — a
+**bimanual ball-and-beam**. The tilt is the control action, and it exists *only* as the
+difference between the two grip heights, so neither arm can hold the tray steady and tilt it
+alone: the control is irreducibly cooperative. Each control tick the ball is segmented in
+the fixed top-down camera, back-projected through depth to a world position, and its offset
+from the (proprioceptively known) tray centre drives a PID law whose output is the
+differential grip height — the controller never sees the ball's true state.
+
+![Two arms holding the tray, ball centred](figures/bimanual_ball_balance_scene.png)
+
+*Both arms grip the tray's end-posts and hold it jointly; the **top camera** (right) is the
+one the loop reads — the ball sits dead-centre because the controller is actively cancelling
+the grasp's tilt bias.*
+
+| Condition | Settled offset from centre | Behaviour |
+|---|---|---|
+| Open loop (level hold, no feedback) | **68 mm** | rolls to the downhill rail and stays |
+| **Closed loop (vision)** | **3 mm** | held at centre indefinitely (**25× tighter**) |
+| Closed loop + CoM shift | 9 mm (peak 20 mm) | disturbance rejected, re-centred in 2.9 s |
+
+![Vision-guided ball-balancing](figures/bimanual_ball_balance.png)
+
+*Open-loop (grey) a tiny grasp tilt-bias is enough to lose the ball to the rail; closed-loop
+(blue) vision cancels the bias and holds the ball at centre; under a transient centre-of-mass
+shift (orange, shaded) the ball is knocked off centre and driven back.* The one detail that
+makes this run at all: two stiff position-controlled arms rigidly sharing one payload are an
+**over-constrained closed chain**, and re-solving each arm's IK to a fresh pose every tick
+injects energy at the grips until the chain diverges (in ~4.5 s) — even though a *static*
+tilt is perfectly stable. A **joint-space slew limit** (ramp the applied joint targets toward
+the IK solution at a bounded rate) keeps the shared grasp in its stick regime and the
+controller runs indefinitely.
 
 The full write-up is a Springer-style book chapter generated the same build-from-data way
 as the paper above: [`paper/chapter.pdf`](paper/chapter.pdf) (sources in
