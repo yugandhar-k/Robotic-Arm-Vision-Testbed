@@ -885,6 +885,64 @@ smaller, once-per-pick gap now, rather than the original always-wrong one.
 
 ---
 
+## Dual-Arm Bimanual Cooperative Manipulation
+
+A second track built on the same arm extends the testbed from one arm to **two arms facing
+each other across a shared table**, to study tasks that physically require two hands acting
+on the same object at once. The arm model and inverse kinematics are not re-implemented:
+`run_sim.arm_body_mjcf(prefix, base, yaw)` emits the arm under a name prefix at any base
+pose, and **both** the single-arm scene and the dual-arm scene instantiate it — so the
+single-arm classification benchmark above is preserved *bit-for-bit*
+(`python run_sim.py --selftest` is byte-identical after the extension). Each arm is driven
+by its own `ArmKinematics`, made base-yaw aware so the arm rotated 180° to face its partner
+reaches the shared centre with the same sub-mm closed-form accuracy.
+
+```bash
+python dual_arm.py --selftest          # both arms reach the shared centre (headless)
+python dual_arm.py                     # live viewer of the two-arm rig
+python bimanual.py                     # run the two bimanual tasks headless (metrics)
+python bimanual.py --view              # watch the cooperative lift live
+python bimanual.py --view --desync 0.4 # watch it see-saw when the arms desynchronize
+python bimanual_benchmark.py           # full benchmark -> results/ + figures/
+python paper/chapter_build_latex.py --tectonic .tools/tectonic.exe   # build the chapter
+```
+
+**Task 1 — cooperative lift (a genuine two-hand task).** The payload is a *dumbbell*: a
+central block wider than one gripper's open span (so one hand cannot grasp it anywhere),
+with a thin graspable rod at each end. Both arms take an end and lift it in lockstep
+through the shared closed kinematic chain, with a synchronization barrier (neither lifts
+until both grippers confirm a grasp). Measured, over 8 jittered trials:
+
+| Condition | Peak payload tilt | Carried level? |
+|---|---|---|
+| Single arm (one end rod) | **29.8°** | no — it dangles |
+| **Two arms, synchronized** | **0.0° ± 0.0°** (held 8/8) | **yes** |
+| Two arms, 0.4 s desynchronized | 15.1° | no — it see-saws |
+
+![Cooperative lift: synchronized vs desynchronized](figures/bimanual_lift_desync.png)
+
+*Two arms mid-lift with a 0.4 s inter-arm lag: the dumbbell see-saws (~15°). Synchronized,
+it stays level.* And the degradation is smooth, not a cliff — peak tilt rises
+0° → 4.1° → 8.1° → 11.7° → 15.1° → 18.0° as the lag grows from 0 to 0.5 s
+([`figures/bimanual_desync_sweep.png`](figures/bimanual_desync_sweep.png)). **Coordination
+quality, not arm count, sets the outcome.**
+
+**Task 2 — closing a lid (an honest *negative* result).** The task intuition most readily
+calls "two-handed" — seating a press-fit lid on a can while the other hand steadies it —
+turns out **not** to require two hands: one arm seats the lid to **0.9 mm** off-centre
+because the *table* back-stops the can against the press, and the naive two-arm version is
+actually *worse* (the arms contend for the same can and knock it 124 mm aside). The lesson
+sharpens the first result: **a second hand earns its place only when it supplies a
+constraint neither the first hand nor the world can** — which the oversized-payload lift
+needs (nothing holds a payload in flight) and the lid close does not.
+
+The full write-up is a Springer-style book chapter generated the same build-from-data way
+as the paper above: [`paper/chapter.pdf`](paper/chapter.pdf) (sources in
+`paper/chapter/`, zipped as `paper/chapter_latex.zip`), with every number read from
+`results/bimanual_results.json`.
+
+---
+
 ## Where This Fits
 
 The end goal is a manipulator that identifies objects using only the sensors carried on

@@ -1,0 +1,68 @@
+{
+  "cooperative_lift_sync": {
+    "n_trials": 8,
+    "peak_tilt_deg": {
+      "mean": 0.027358765675240832,
+      "std": 0.03311100584307475,
+      "max": 0.10126586598361845
+    },
+    "peak_end_dz_mm": {
+      "mean": 0.1146000953407833,
+      "std": 0.1386949884053934,
+      "max": 0.4241812466696526
+    },
+    "held_rate": 1.0
+  },
+  "desync_sweep": [
+    {
+      "lag_s": 0.0,
+      "peak_tilt_deg": 0.029885978218204472,
+      "peak_end_dz_mm": 0.12518608714429114
+    },
+    {
+      "lag_s": 0.1,
+      "peak_tilt_deg": 4.054197751469736,
+      "peak_end_dz_mm": 16.968016168630527
+    },
+    {
+      "lag_s": 0.2,
+      "peak_tilt_deg": 8.074590938082135,
+      "peak_end_dz_mm": 33.71092092785033
+    },
+    {
+      "lag_s": 0.3,
+      "peak_tilt_deg": 11.718173524974743,
+      "peak_end_dz_mm": 48.74349185419335
+    },
+    {
+      "lag_s": 0.4,
+      "peak_tilt_deg": 15.07376854959341,
+      "peak_end_dz_mm": 62.41499128282246
+    },
+    {
+      "lag_s": 0.5,
+      "peak_tilt_deg": 17.960278821505874,
+      "peak_end_dz_mm": 74.00582055410942
+    }
+  ],
+  "single_arm_lift": {
+    "peak_height_mm": 121.27147220894152,
+    "final_tilt_deg": 29.844795058849655,
+    "peak_tilt_deg": 29.844795058849655,
+    "held": 1.0
+  },
+  "lid_close_one_hand": {
+    "success": 1.0,
+    "lid_centre_err_mm": 0.8987064016871942,
+    "lid_z_err_mm": 0.011994225260769653,
+    "can_disp_mm": 0.12593431033453165,
+    "can_tilt_deg": 0.0005650962592613088
+  },
+  "lid_close_two_hand": {
+    "success": 0.0,
+    "lid_centre_err_mm": 185.5687533091641,
+    "lid_z_err_mm": 110.00456001359294,
+    "can_disp_mm": 124.2248903603217,
+    "can_tilt_deg": 0.0010990524385825463
+  }
+}

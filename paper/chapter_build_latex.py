@@ -1,0 +1,375 @@
+"""chapter_build_latex.py - Build the book chapter on bimanual cooperative manipulation.
+
+Reads results/bimanual_results.json (written by bimanual_benchmark.py) and the figures,
+emits a Springer-style (llncs) LaTeX source package under paper/chapter/, zips it, and -
+if a tectonic binary is given - compiles paper/chapter.pdf. Every number traces to the
+results file, matching the single-arm paper's build-from-data discipline.
+
+Usage
+-----
+    python paper/chapter_build_latex.py [--tectonic PATH] [--no-compile]
+
+Author: Yugandhar Kulkarni - DRDO Research Intern - DES Pune University
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import zipfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+RESULTS = ROOT / "results" / "bimanual_results.json"
+FIGURES = ROOT / "figures"
+OUT_DIR = ROOT / "paper"
+CH_DIR = OUT_DIR / "chapter"
+CH_FIG_DIR = CH_DIR / "figures"
+
+data = json.loads(RESULTS.read_text())
+SYNC = data["cooperative_lift_sync"]
+SWEEP = data["desync_sweep"]
+SINGLE = data["single_arm_lift"]
+LID1 = data["lid_close_one_hand"]
+LID2 = data["lid_close_two_hand"]
+
+
+def desync_at(lag):
+    return next(s for s in SWEEP if abs(s["lag_s"] - lag) < 1e-9)
+
+
+D04 = desync_at(0.4)
+
+
+def esc(text: str) -> str:
+    for old, new in [("\\", r"\textbackslash{}"), ("&", r"\&"), ("%", r"\%"),
+                     ("$", r"\$"), ("#", r"\#"), ("_", r"\_"), ("{", r"\{"),
+                     ("}", r"\}"), ("—", "---"), ("–", "--"), ("“", "``"),
+                     ("”", "''"), ("’", "'"), ("±", r"$\pm$"), ("°", r"$^\circ$"),
+                     ("×", r"$\times$"), ("→", r"$\rightarrow$")]:
+        text = text.replace(old, new)
+    return text
+
+
+parts = []
+def para(t): parts.append(esc(t)); parts.append("")
+def raw(t): parts.append(t); parts.append("")
+def section(t): parts.append(r"\section{" + esc(t) + "}")
+def subsection(t): parts.append(r"\subsection{" + esc(t) + "}")
+
+
+# ---------------------------------------------------------------------------
+section("Introduction")
+para(
+    "A single robotic manipulator, however dexterous, is fundamentally limited to tasks "
+    "an object can be manipulated through one point of contact. A great many everyday "
+    "manipulation tasks are not of this kind: carrying a tray or a long workpiece, "
+    "steadying a container while acting on it, assembling two parts that must be brought "
+    "together. These require two hands acting on the same object at the same time, with "
+    "coordination between them. This chapter studies that coordination on a simulated "
+    "dual-arm testbed built as a direct extension of a single-arm manipulation and "
+    "perception platform.")
+para(
+    "We ask two questions that are easy to state and surprisingly easy to get wrong. "
+    "First: which seemingly two-hand tasks genuinely require two hands, and which can one "
+    "hand do once the world (a table, a wall) is allowed to help? Second: for the tasks "
+    "that do require two hands, what coordination between the arms is needed, and how "
+    "gracefully or abruptly does performance fall off as that coordination is degraded? "
+    "We answer both with measured results rather than assertion, in keeping with the "
+    "benchmark-driven discipline of the underlying platform.")
+para("Our contributions are:")
+raw(r"\begin{itemize}")
+raw(r"\item A shared-workspace dual-arm testbed in which two 6-DoF arms face each other "
+    "across a table, built by replicating the exact arm model and inverse kinematics of "
+    "a previously validated single-arm manipulation platform, so that the single-arm "
+    "results it was validated on are preserved bit-for-bit.")
+raw(r"\item A cooperative-lift task and controller in which the two arms grasp the two "
+    "ends of an oversized payload and raise it in lockstep through a shared closed "
+    "kinematic chain, with an explicit synchronization barrier before the lift.")
+raw(r"\item A quantitative coordination study: the lift is carried level to within "
+    f"{SYNC['peak_tilt_deg']['mean']:.1f}" + r"$^\circ$" + " of tilt on average, a single "
+    f"arm cannot carry it better than {SINGLE['peak_tilt_deg']:.0f}" + r"$^\circ$, and "
+    "performance degrades smoothly and measurably as the two arms are desynchronized.")
+raw(r"\item An honest negative result: closing a press-fit lid on a can --- a textbook "
+    "``two-hand'' task --- is in fact done cleanly by one arm, because the table "
+    "back-stops the can; the naive two-arm version is worse, not better. This sharpens a "
+    "small taxonomy of when a second hand is genuinely necessary.")
+raw(r"\end{itemize}")
+
+# ---------------------------------------------------------------------------
+section("Related Work")
+para(
+    "Bimanual and dual-arm manipulation has a long history in robotics, motivated by the "
+    "classes of task a single arm cannot perform: cooperative transport of large or heavy "
+    "payloads, in-hand and between-hand regrasping, and assembly where one hand fixtures "
+    "while the other works. When two arms grasp one rigid object they form a closed "
+    "kinematic chain, and the central control problem becomes maintaining a consistent "
+    "relative pose and avoiding large internal forces --- a coordination problem rather "
+    "than two independent reaching problems. Our cooperative-lift task and its "
+    "synchronization analysis sit squarely in this tradition, in a deliberately minimal, "
+    "fully reproducible simulation.")
+para(
+    "The arm, its analytic-plus-damped-least-squares inverse kinematics, the grasp "
+    "mechanics, and the vision used to find and localise objects are inherited unchanged "
+    "from the single-arm platform this work extends, where they were validated against a "
+    "cross-camera object-classification benchmark. We reuse that machinery rather than "
+    "re-deriving it, and focus this chapter entirely on the coordination between arms.")
+
+# ---------------------------------------------------------------------------
+section("The Shared-Workspace Dual-Arm Testbed")
+para(
+    "The testbed places two identical 6-DoF revolute arms, each with a two-finger "
+    "parallel claw, on opposite edges of a common table and yaws them to face each other, "
+    "so both reach a shared central region --- the precondition for any two-hand task. "
+    "Crucially, the arm is not re-modelled: a single parameterised description emits the "
+    "arm body (links, joints, claw, and claw camera) under a name prefix and at an "
+    "arbitrary base pose, and the single-arm scene and the dual-arm scene both instantiate "
+    "it. The single-arm classification benchmark therefore produces identical numbers "
+    "before and after the extension, a property we assert as a regression check.")
+para(
+    "Each arm is driven by its own inverse-kinematics solver. The only addition the "
+    "two-arm setting requires is awareness of the arm's mounting yaw: the numerical "
+    "damped-least-squares solve is already frame-agnostic, and the closed-form seed is "
+    "computed in the arm's own base frame, so an arm rotated to face its partner reaches "
+    "the shared centre with the same sub-millimetre closed-form accuracy as the original "
+    "forward-facing arm. Both arms converge on the shared centre under full physics to "
+    "about 2~mm of servo error.")
+
+# ---------------------------------------------------------------------------
+section("Tasks and Coordination Mechanisms")
+subsection("Cooperative lift of an oversized payload")
+para(
+    "The payload is a dumbbell lying along the line joining the two arms: a wide central "
+    "block, wider than a single gripper's open span and so ungraspable by one hand, "
+    "joined to a thin graspable rod at each end. The only way to pick it up is for each "
+    "arm to take one end; and because the mass is concentrated in the middle, one hand on "
+    "one end rod merely torques the payload out of level.")
+para(
+    "The two arms run one shared phase clock: approach, descend, grasp, lift, hold, lower, "
+    "release. Two coordination mechanisms make the lift work. First, a synchronization "
+    "barrier: the team does not advance from grasping to lifting until both grippers' own "
+    "joint encoders confirm a grasp. Second, within the lift both tool frames follow the "
+    "identical vertical profile, so the shared rigid payload is raised level rather than "
+    "see-sawed. We probe the importance of the second mechanism directly by delaying one "
+    "arm's lift relative to the other by a controlled lag.")
+subsection("Lid close: stabilize and act")
+para(
+    "The second task is the one intuition most readily calls ``two-handed'': seating a "
+    "press-fit lid on a free-standing can. One arm is to grip and steady the can while the "
+    "other grips the lid by its stem, carries it over, and presses it home. We implement "
+    "both a two-arm version and a one-arm version (the lid arm alone, the can left free "
+    "standing) and measure, in each, whether the lid ends up seated and centred and "
+    "whether the can is displaced.")
+
+# ---------------------------------------------------------------------------
+section("Experiments and Results")
+subsection("Cooperative lift")
+raw(
+    f"Across {SYNC['n_trials']} trials with the payload's resting pose randomly perturbed "
+    "(a few millimetres and a few degrees), the synchronized two-arm lift carries the "
+    f"dumbbell to a peak tilt of only {SYNC['peak_tilt_deg']['mean']:.1f}" + r"$^\circ \pm$ "
+    f"{SYNC['peak_tilt_deg']['std']:.1f}" + r"$^\circ$ from level, with the two ends "
+    f"staying within {SYNC['peak_end_dz_mm']['mean']:.1f}~mm of the same height, and the "
+    f"payload held throughout on {int(SYNC['held_rate'] * SYNC['n_trials'])} of "
+    f"{SYNC['n_trials']} trials. A single arm grasping the only point it can --- one end "
+    f"rod --- cannot do better than {SINGLE['peak_tilt_deg']:.0f}" + r"$^\circ$ of tilt "
+    "(Table~\\ref{tab:lift}): it lifts the payload but leaves it dangling, because the "
+    "mass hangs a lever-arm away from the single grasp. Carrying the payload level is, "
+    "measurably, a two-hand task.")
+raw(r"""\begin{table}[t]
+\centering
+\caption{Cooperative lift: peak payload tilt from level (lower is better).}
+\label{tab:lift}
+\begin{tabular}{lcc}
+\hline
+Condition & Peak tilt (deg) & Payload carried level? \\
+\hline
+Single arm (one end rod) & """ + f"{SINGLE['peak_tilt_deg']:.1f}" + r""" & no (dangles) \\
+Two arms, synchronized & """ + f"{SYNC['peak_tilt_deg']['mean']:.1f} $\\pm$ {SYNC['peak_tilt_deg']['std']:.1f}" + r""" & yes \\
+Two arms, 0.4\,s desync & """ + f"{D04['peak_tilt_deg']:.1f}" + r""" & no (see-saws) \\
+\hline
+\end{tabular}
+\end{table}""")
+raw(
+    "The synchronization itself is what matters, not merely having two arms. "
+    f"Figure~\\ref{{fig:sweep}} sweeps the inter-arm lag during the lift from 0 to 0.5~s. "
+    f"At zero lag the payload stays level; by a 0.4~s lag it tilts {D04['peak_tilt_deg']:.1f}"
+    + r"$^\circ$ and its two ends differ in height by " + f"{D04['peak_end_dz_mm']:.0f}~mm "
+    "as one end rises before the other. Coordination quality, not arm count, sets the "
+    "outcome, and it degrades smoothly --- there is a usable tolerance band, not a cliff. "
+    "Figure~\\ref{fig:tilt} summarises the three conditions.")
+raw(r"""\begin{figure}[t]
+\centering
+\includegraphics[width=0.78\linewidth]{figures/bimanual_desync_sweep.png}
+\caption{The cooperative lift degrades smoothly as the two arms desynchronize: peak
+payload tilt and the height gap between its two ends both grow with the inter-arm lag.}
+\label{fig:sweep}
+\end{figure}""")
+raw(r"""\begin{figure}[t]
+\centering
+\includegraphics[width=0.66\linewidth]{figures/bimanual_tilt_comparison.png}
+\caption{Peak payload tilt by condition. A single arm cannot keep the oversized payload
+level; two synchronized arms keep it to within a degree; desynchronized arms see-saw it.}
+\label{fig:tilt}
+\end{figure}""")
+
+subsection("Lid close: an honest negative")
+raw(
+    "The lid-close result is the opposite of the intuition. One arm alone seats the lid "
+    f"essentially perfectly --- {LID1['lid_centre_err_mm']:.1f}~mm off centre, the can "
+    f"displaced by {LID1['can_disp_mm']:.1f}~mm --- because the table back-stops the can "
+    "against the downward press; the second hand is simply not needed. Worse, the naive "
+    "two-arm version fails (Table~\\ref{tab:lid}): with both arms converging on the same "
+    "small can, they contend for it and knock it "
+    f"{LID2['can_disp_mm']:.0f}~mm aside. The lesson is not that coordination is "
+    "unhelpful but that a task only needs a second hand when the world cannot supply the "
+    "missing constraint --- here the table already does.")
+raw(r"""\begin{table}[t]
+\centering
+\caption{Lid close: an apparent two-hand task that one hand does better.}
+\label{tab:lid}
+\begin{tabular}{lccc}
+\hline
+Condition & Lid off-centre (mm) & Can displaced (mm) & Seated? \\
+\hline
+One hand (can free-standing) & """ + f"{LID1['lid_centre_err_mm']:.1f} & {LID1['can_disp_mm']:.1f}" + r""" & yes \\
+Two hands (one holds the can) & """ + f"{LID2['lid_centre_err_mm']:.1f} & {LID2['can_disp_mm']:.1f}" + r""" & no \\
+\hline
+\end{tabular}
+\end{table}""")
+
+# ---------------------------------------------------------------------------
+section("Discussion")
+para(
+    "Taken together the two tasks suggest a simple test for when a second hand is "
+    "genuinely required: a second hand is necessary exactly when the task needs a "
+    "constraint that neither the first hand nor the environment can supply. Carrying the "
+    "oversized payload needs a second support the world cannot provide (there is no table "
+    "under a payload in flight, and the object exceeds one gripper), so two hands are "
+    "required --- and, being a closed chain, they must be coordinated in space and time. "
+    "Seating the lid needs the can held still, but the table already supplies that "
+    "against a vertical press, so one hand suffices. The coordination the genuine case "
+    "demands is itself of a specific kind: tight spatio-temporal synchronization on a "
+    "shared rigid body, distinct from the looser role-differentiation (one holds, one "
+    "acts) that the lid task would have needed had the world not helped.")
+
+# ---------------------------------------------------------------------------
+section("Limitations and Future Work")
+raw(r"\begin{itemize}")
+raw(r"\item Simulation only. The dynamics, contacts and friction are idealised; a "
+    "sim-to-real study with domain randomisation is the natural next step, as it is for "
+    "the underlying single-arm platform.")
+raw(r"\item A third genuinely two-hand regime --- handover across a partitioned workspace "
+    "--- is identified but not completed here: it exposed a reach limitation of one arm at "
+    "the far side of the shared centre under load, which a workspace-management and "
+    "reachability-aware planning layer should resolve.")
+raw(r"\item Screw (threaded) lid closing, which genuinely needs counter-torque and hence "
+    "two hands, is left to future work because it requires continuous rotational contact "
+    "and finger regrasping that rigid-body position control does not capture cleanly.")
+raw(r"\item The two arms do not yet share a collision-avoidance layer for arbitrarily "
+    "overlapping reach; the present tasks keep each arm's working volume largely "
+    "separate. A reservation-based deconfliction layer is the clear extension for dense "
+    "shared-workspace operation.")
+raw(r"\end{itemize}")
+
+# ---------------------------------------------------------------------------
+section("Conclusion")
+para(
+    "We built a shared-workspace dual-arm testbed as a faithful extension of a validated "
+    "single-arm platform, and used it to measure, rather than assume, bimanual "
+    "coordination. Two synchronized arms carry an oversized payload level to within a "
+    "degree where one arm cannot, and performance degrades smoothly and measurably as the "
+    "arms are desynchronized --- a clean, quantitative coordination result. At the same "
+    "time, a canonical ``two-hand'' task, closing a lid, turns out to need only one hand "
+    "once the environment is allowed to help. The second finding disciplines the first: a "
+    "second hand earns its place only when it supplies a constraint nothing else can, and "
+    "when it does, the coordination it demands can be stated, measured, and designed for.")
+
+document = (r"""\documentclass[runningheads]{llncs}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\begin{document}
+\title{Bimanual Cooperative Manipulation on a Shared-Workspace Dual-Arm Testbed}
+\titlerunning{Bimanual Cooperative Manipulation on a Dual-Arm Testbed}
+\subtitle{When Two Hands Are Required, and the Coordination They Demand}
+\author{Yugandhar Kulkarni}
+\authorrunning{Y. Kulkarni}
+\institute{DES Pune University, Pune, India \\ \email{github.com/yugandhar-k}}
+\maketitle
+
+\begin{abstract}
+We study bimanual cooperative manipulation on a simulated dual-arm testbed built as a
+faithful extension of a validated single-arm platform: two 6-DoF arms face each other
+across a shared table, reusing the original arm model and inverse kinematics so the
+single-arm benchmark it was validated on is preserved exactly. On this testbed we measure,
+rather than assume, two things. First, two synchronized arms carry an oversized payload ---
+too wide for one gripper and mass-heavy in the middle --- level to within
+""" + f"{SYNC['peak_tilt_deg']['mean']:.1f}" + r"$^\circ$, where a single arm cannot do "
+"better than " + f"{SINGLE['peak_tilt_deg']:.0f}" + r"""$^\circ$ of tilt, and this degrades
+smoothly and quantifiably as the two arms are desynchronized. Second, an apparently
+two-hand task --- closing a press-fit lid on a can --- is in fact done cleanly by one
+hand, because the table supplies the constraint the second hand would have, while the
+naive two-arm attempt is worse. Together these results give a simple, measured test for
+when a second hand is genuinely required and what coordination it then demands.
+\keywords{dual-arm manipulation \and bimanual coordination \and cooperative lifting \and
+closed-chain control \and robot simulation.}
+\end{abstract}
+
+""" + "\n".join(parts) + r"""
+
+\begin{thebibliography}{8}
+\bibitem{smith} Smith, C., Karayiannidis, Y., et al.: Dual arm manipulation --- a survey.
+Robotics and Autonomous Systems 60(10), 1340--1353 (2012)
+\bibitem{caccavale} Caccavale, F., Uchiyama, M.: Cooperative manipulation. In: Springer
+Handbook of Robotics, pp. 989--1006. Springer (2016)
+\bibitem{hutchinson} Hutchinson, S., Hager, G.D., Corke, P.I.: A tutorial on visual servo
+control. IEEE Trans. Robotics and Automation 12(5), 651--670 (1996)
+\bibitem{todorov} Todorov, E., Erez, T., Tassa, Y.: MuJoCo: A physics engine for
+model-based control. In: IEEE/RSJ IROS, pp. 5026--5033 (2012)
+\bibitem{kulkarni} Kulkarni, Y.: Does fixed mean occluded? A cross-validated benchmark of
+eye-in-hand vs. fixed-camera baselines for robotic manipulation. Preprint (2026)
+\end{thebibliography}
+\end{document}
+""")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tectonic", default=None)
+    ap.add_argument("--no-compile", action="store_true")
+    args = ap.parse_args()
+
+    CH_DIR.mkdir(parents=True, exist_ok=True)
+    CH_FIG_DIR.mkdir(parents=True, exist_ok=True)
+    (CH_DIR / "chapter.tex").write_text(document, encoding="utf-8")
+    for fig in ["bimanual_desync_sweep.png", "bimanual_tilt_comparison.png"]:
+        src = FIGURES / fig
+        if src.exists():
+            shutil.copy(src, CH_FIG_DIR / fig)
+    print(f"wrote {CH_DIR / 'chapter.tex'} and copied figures")
+
+    zpath = OUT_DIR / "chapter_latex.zip"
+    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in CH_DIR.rglob("*"):
+            if f.is_file():
+                z.write(f, f.relative_to(CH_DIR))
+    print(f"wrote {zpath}")
+
+    if args.no_compile:
+        return
+    tectonic = args.tectonic or "tectonic"
+    print(f"compiling with {tectonic} ...")
+    try:
+        subprocess.run([tectonic, str(CH_DIR / "chapter.tex")], check=True)
+        pdf = CH_DIR / "chapter.pdf"
+        if pdf.exists():
+            shutil.copy(pdf, OUT_DIR / "chapter.pdf")
+            print(f"compiled PDF -> {OUT_DIR / 'chapter.pdf'}")
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        print(f"compile skipped/failed ({e}); .tex and .zip are ready")
+
+
+if __name__ == "__main__":
+    main()

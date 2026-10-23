@@ -374,6 +374,118 @@ FIXED_CAMERA_CROP_HALF_SIDE: float = 0.5 * FIXED_CAMERA_CROP_MARGIN * max(
 # ======================================================================================
 
 
+def arm_body_mjcf(prefix: str = "", base_x: float = ROBOT_BASE_XY[0],
+                  base_y: float = ROBOT_BASE_XY[1], base_euler_z: float = 0.0) -> str:
+    """One 6-DoF arm + two-finger claw, as an MJCF `<body>` block.
+
+    Every element name is `prefix`-ed so several arms can coexist in one model with
+    unique joint/geom/site/camera names (e.g. prefix="left_" -> "left_j1_base_yaw"). With
+    the default empty prefix and default base pose this reproduces the single-arm model
+    the classification benchmark is built on, geom-for-geom - the single-arm `build_mjcf`
+    and any multi-arm scene share this one source of arm geometry so they can never drift.
+
+    `base_euler_z` yaws the whole arm about vertical at its mount, so two arms can be
+    placed facing each other across a shared workspace (the bimanual-manipulation setup).
+    """
+    return f"""    <body name="{prefix}arm_base" pos="{base_x} {base_y} {TABLE_TOP_Z}" euler="0 0 {base_euler_z}">
+      <geom name="{prefix}pedestal" type="cylinder" material="actuator" size="0.075 0.030"
+            pos="0 0 0.030"/>
+      <geom name="{prefix}pedestal_ring" type="cylinder" material="accent" size="0.078 0.006"
+            pos="0 0 0.062"/>
+
+      <body name="{prefix}shoulder_yaw" pos="0 0 0.072">
+        <joint name="{prefix}j1_base_yaw" class="arm_joint" axis="0 0 1" range="-3.05 3.05"/>
+        <geom name="{prefix}shoulder_housing" class="link" type="cylinder" size="0.058 0.045"
+              pos="0 0 0.045" material="link"/>
+
+        <body name="{prefix}shoulder_pitch" pos="0 0 0.098">
+          <joint name="{prefix}j2_shoulder" class="arm_joint" axis="0 1 0" range="-2.10 2.10"/>
+          <geom name="{prefix}shoulder_joint" class="link" type="cylinder" size="0.048 0.052"
+                quat="0.7071 0.7071 0 0" material="actuator"/>
+          <geom name="{prefix}upper_arm" class="link" size="0.038" fromto="0 0 0 0 0 0.400"/>
+
+          <body name="{prefix}elbow" pos="0 0 0.400">
+            <joint name="{prefix}j3_elbow" class="arm_joint" axis="0 1 0" range="-2.60 2.60"/>
+            <geom name="{prefix}elbow_joint" class="link" type="cylinder" size="0.042 0.046"
+                  quat="0.7071 0.7071 0 0" material="actuator"/>
+            <geom name="{prefix}forearm" class="link" size="0.032" fromto="0 0 0 0 0 0.360"/>
+
+            <body name="{prefix}wrist_roll" pos="0 0 0.360">
+              <joint name="{prefix}j4_wrist_roll" class="arm_joint" axis="0 0 1"
+                     range="-3.05 3.05"/>
+              <geom name="{prefix}wrist_roll_geom" class="link" type="cylinder"
+                    size="0.030 0.038" pos="0 0 0.038"/>
+
+              <body name="{prefix}wrist_pitch" pos="0 0 0.078">
+                <joint name="{prefix}j5_wrist_pitch" class="arm_joint" axis="0 1 0"
+                       range="-2.10 2.10"/>
+                <geom name="{prefix}wrist_pitch_geom" class="link" type="cylinder"
+                      size="0.030 0.034" quat="0.7071 0.7071 0 0" material="actuator"/>
+
+                <body name="{prefix}tool" pos="0 0 0.062">
+                  <joint name="{prefix}j6_tool_yaw" class="arm_joint" axis="0 0 1"
+                         range="-3.20 3.20"/>
+                  <geom name="{prefix}tool_flange" class="link" type="cylinder"
+                        size="0.034 0.010" pos="0 0 0.006"/>
+                  <geom name="{prefix}claw_palm" type="box" material="actuator"
+                        size="0.052 0.020 0.012" pos="0 0 {PALM_Z}"/>
+                  <geom name="{prefix}claw_rail" type="box" material="accent"
+                        size="0.052 0.005 0.004" pos="0 0.022 {PALM_Z}"
+                        contype="0" conaffinity="0"/>
+
+                  <!-- Claw-mounted camera: sits on the side of the palm and looks
+                       down the approach axis, so the grasp point stays centred and
+                       both fingers frame the object. MuJoCo cameras look along their
+                       own -z, so the 180 deg roll about x aims it along the tool +z;
+                       the small extra tilt compensates the lateral mount offset. -->
+                  <geom name="{prefix}camera_bracket" type="box" material="actuator"
+                        size="0.012 0.014 0.014"
+                        pos="0 {CAM_MOUNT_Y + 0.004} {CAM_MOUNT_Z - 0.020}"
+                        contype="0" conaffinity="0"/>
+                  <geom name="{prefix}camera_lens" type="cylinder" material="lens"
+                        size="0.009 0.003"
+                        pos="0 {CAM_MOUNT_Y} {CAM_MOUNT_Z - 0.004}"
+                        contype="0" conaffinity="0"/>
+                  <camera name="{prefix}claw" pos="0 {CAM_MOUNT_Y} {CAM_MOUNT_Z}"
+                          euler="{math.pi - CAM_TILT_RAD} 0 0" fovy="{CAM_FOV_DEG}"/>
+
+                  <!-- Grasp frame: the point the IK drives, mid-way along the pads. -->
+                  <site name="{prefix}tool_site" pos="0 0 {GRASP_SITE_Z}" size="0.006"
+                        rgba="1 0.3 0.1 0"/>
+
+                  <body name="{prefix}finger_left" pos="{FINGER_HOME_X} 0 {FINGER_BASE_Z}">
+                    <joint name="{prefix}finger_left" class="finger" axis="-1 0 0"/>
+                    <geom name="{prefix}finger_left_geom" class="finger_pad"
+                          size="{FINGER_HALF_THICK} 0.018 {FINGER_HALF_LENGTH}"
+                          pos="0 0 {FINGER_HALF_LENGTH}"/>
+                  </body>
+                  <body name="{prefix}finger_right" pos="{-FINGER_HOME_X} 0 {FINGER_BASE_Z}">
+                    <joint name="{prefix}finger_right" class="finger" axis="1 0 0"/>
+                    <geom name="{prefix}finger_right_geom" class="finger_pad"
+                          size="{FINGER_HALF_THICK} 0.018 {FINGER_HALF_LENGTH}"
+                          pos="0 0 {FINGER_HALF_LENGTH}"/>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>"""
+
+
+def arm_actuator_mjcf(prefix: str = "") -> str:
+    """The eight actuators (six arm joints + two claw fingers) for one `prefix`-ed arm."""
+    return f"""    <position class="arm_joint" name="{prefix}a1" joint="{prefix}j1_base_yaw"/>
+    <position class="arm_joint" name="{prefix}a2" joint="{prefix}j2_shoulder"/>
+    <position class="arm_joint" name="{prefix}a3" joint="{prefix}j3_elbow"/>
+    <position class="arm_joint" name="{prefix}a4" joint="{prefix}j4_wrist_roll"/>
+    <position class="arm_joint" name="{prefix}a5" joint="{prefix}j5_wrist_pitch"/>
+    <position class="arm_joint" name="{prefix}a6" joint="{prefix}j6_tool_yaw"/>
+    <position class="finger" name="{prefix}claw_left" joint="{prefix}finger_left"/>
+    <position class="finger" name="{prefix}claw_right" joint="{prefix}finger_right"/>"""
+
+
 def build_mjcf() -> str:
     """Return the MJCF description of floor, table, 6-DoF arm and object slots.
 
@@ -464,91 +576,7 @@ def build_mjcf() -> str:
     </body>
 
     <!-- ============ 6-DoF manipulator, base-mounted on the table top ============ -->
-    <body name="arm_base" pos="{ROBOT_BASE_XY[0]} {ROBOT_BASE_XY[1]} {TABLE_TOP_Z}">
-      <geom name="pedestal" type="cylinder" material="actuator" size="0.075 0.030"
-            pos="0 0 0.030"/>
-      <geom name="pedestal_ring" type="cylinder" material="accent" size="0.078 0.006"
-            pos="0 0 0.062"/>
-
-      <body name="shoulder_yaw" pos="0 0 0.072">
-        <joint name="j1_base_yaw" class="arm_joint" axis="0 0 1" range="-3.05 3.05"/>
-        <geom name="shoulder_housing" class="link" type="cylinder" size="0.058 0.045"
-              pos="0 0 0.045" material="link"/>
-
-        <body name="shoulder_pitch" pos="0 0 0.098">
-          <joint name="j2_shoulder" class="arm_joint" axis="0 1 0" range="-2.10 2.10"/>
-          <geom name="shoulder_joint" class="link" type="cylinder" size="0.048 0.052"
-                quat="0.7071 0.7071 0 0" material="actuator"/>
-          <geom name="upper_arm" class="link" size="0.038" fromto="0 0 0 0 0 0.400"/>
-
-          <body name="elbow" pos="0 0 0.400">
-            <joint name="j3_elbow" class="arm_joint" axis="0 1 0" range="-2.60 2.60"/>
-            <geom name="elbow_joint" class="link" type="cylinder" size="0.042 0.046"
-                  quat="0.7071 0.7071 0 0" material="actuator"/>
-            <geom name="forearm" class="link" size="0.032" fromto="0 0 0 0 0 0.360"/>
-
-            <body name="wrist_roll" pos="0 0 0.360">
-              <joint name="j4_wrist_roll" class="arm_joint" axis="0 0 1"
-                     range="-3.05 3.05"/>
-              <geom name="wrist_roll_geom" class="link" type="cylinder"
-                    size="0.030 0.038" pos="0 0 0.038"/>
-
-              <body name="wrist_pitch" pos="0 0 0.078">
-                <joint name="j5_wrist_pitch" class="arm_joint" axis="0 1 0"
-                       range="-2.10 2.10"/>
-                <geom name="wrist_pitch_geom" class="link" type="cylinder"
-                      size="0.030 0.034" quat="0.7071 0.7071 0 0" material="actuator"/>
-
-                <body name="tool" pos="0 0 0.062">
-                  <joint name="j6_tool_yaw" class="arm_joint" axis="0 0 1"
-                         range="-3.20 3.20"/>
-                  <geom name="tool_flange" class="link" type="cylinder"
-                        size="0.034 0.010" pos="0 0 0.006"/>
-                  <geom name="claw_palm" type="box" material="actuator"
-                        size="0.052 0.020 0.012" pos="0 0 {PALM_Z}"/>
-                  <geom name="claw_rail" type="box" material="accent"
-                        size="0.052 0.005 0.004" pos="0 0.022 {PALM_Z}"
-                        contype="0" conaffinity="0"/>
-
-                  <!-- Claw-mounted camera: sits on the side of the palm and looks
-                       down the approach axis, so the grasp point stays centred and
-                       both fingers frame the object. MuJoCo cameras look along their
-                       own -z, so the 180 deg roll about x aims it along the tool +z;
-                       the small extra tilt compensates the lateral mount offset. -->
-                  <geom name="camera_bracket" type="box" material="actuator"
-                        size="0.012 0.014 0.014"
-                        pos="0 {CAM_MOUNT_Y + 0.004} {CAM_MOUNT_Z - 0.020}"
-                        contype="0" conaffinity="0"/>
-                  <geom name="camera_lens" type="cylinder" material="lens"
-                        size="0.009 0.003"
-                        pos="0 {CAM_MOUNT_Y} {CAM_MOUNT_Z - 0.004}"
-                        contype="0" conaffinity="0"/>
-                  <camera name="claw" pos="0 {CAM_MOUNT_Y} {CAM_MOUNT_Z}"
-                          euler="{math.pi - CAM_TILT_RAD} 0 0" fovy="{CAM_FOV_DEG}"/>
-
-                  <!-- Grasp frame: the point the IK drives, mid-way along the pads. -->
-                  <site name="tool_site" pos="0 0 {GRASP_SITE_Z}" size="0.006"
-                        rgba="1 0.3 0.1 0"/>
-
-                  <body name="finger_left" pos="{FINGER_HOME_X} 0 {FINGER_BASE_Z}">
-                    <joint name="finger_left" class="finger" axis="-1 0 0"/>
-                    <geom name="finger_left_geom" class="finger_pad"
-                          size="{FINGER_HALF_THICK} 0.018 {FINGER_HALF_LENGTH}"
-                          pos="0 0 {FINGER_HALF_LENGTH}"/>
-                  </body>
-                  <body name="finger_right" pos="{-FINGER_HOME_X} 0 {FINGER_BASE_Z}">
-                    <joint name="finger_right" class="finger" axis="1 0 0"/>
-                    <geom name="finger_right_geom" class="finger_pad"
-                          size="{FINGER_HALF_THICK} 0.018 {FINGER_HALF_LENGTH}"
-                          pos="0 0 {FINGER_HALF_LENGTH}"/>
-                  </body>
-                </body>
-              </body>
-            </body>
-          </body>
-        </body>
-      </body>
-    </body>
+{arm_body_mjcf()}
 
     <!-- ============ object field ============ -->
 {object_slots}
@@ -604,14 +632,7 @@ def build_mjcf() -> str:
   </worldbody>
 
   <actuator>
-    <position class="arm_joint" name="a1" joint="j1_base_yaw"/>
-    <position class="arm_joint" name="a2" joint="j2_shoulder"/>
-    <position class="arm_joint" name="a3" joint="j3_elbow"/>
-    <position class="arm_joint" name="a4" joint="j4_wrist_roll"/>
-    <position class="arm_joint" name="a5" joint="j5_wrist_pitch"/>
-    <position class="arm_joint" name="a6" joint="j6_tool_yaw"/>
-    <position class="finger" name="claw_left" joint="finger_left"/>
-    <position class="finger" name="claw_right" joint="finger_right"/>
+{arm_actuator_mjcf()}
   </actuator>
 </mujoco>
 """
@@ -651,10 +672,17 @@ def _wrap(angle: float) -> float:
 class ArmKinematics:
     """Damped-least-squares inverse kinematics for the 6-DoF arm."""
 
-    def __init__(self, model: mujoco.MjModel) -> None:
+    def __init__(self, model: mujoco.MjModel, prefix: str = "",
+                 base_yaw: float = 0.0) -> None:
         self.model = model
+        self.prefix = prefix
+        # Yaw of this arm's mount about vertical [rad] - nonzero when arms are placed
+        # facing each other across a shared workspace. The numerical DLS solve is already
+        # frame-agnostic (it drives a world-frame pose error), so this only feeds the
+        # closed-form seed, which is computed in the base frame (see analytic_seeds).
+        self.base_yaw = float(base_yaw)
         self.joint_ids: List[int] = [
-            mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
+            mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, prefix + name)
             for name in ("j1_base_yaw", "j2_shoulder", "j3_elbow",
                          "j4_wrist_roll", "j5_wrist_pitch", "j6_tool_yaw")
         ]
@@ -667,7 +695,7 @@ class ArmKinematics:
         self.lower: np.ndarray = model.jnt_range[self.joint_ids, 0].copy()
         self.upper: np.ndarray = model.jnt_range[self.joint_ids, 1].copy()
         self.site_id: int = mujoco.mj_name2id(
-            model, mujoco.mjtObj.mjOBJ_SITE, "tool_site"
+            model, mujoco.mjtObj.mjOBJ_SITE, prefix + "tool_site"
         )
         self._jacp = np.zeros((3, model.nv))
         self._jacr = np.zeros((3, model.nv))
@@ -726,6 +754,16 @@ class ArmKinematics:
         current-pose seed falls into.
         """
         delta = np.asarray(target_position, dtype=np.float64) - self.shoulder_origin
+        # Express the target offset in this arm's own (possibly yawed) base frame, so the
+        # planar 2R math below is identical whether the arm faces +x or has been rotated
+        # to face a partner across the table. A pure horizontal rotation by -base_yaw;
+        # the vertical component is unchanged.
+        if self.base_yaw:
+            cos_b, sin_b = math.cos(self.base_yaw), math.sin(self.base_yaw)
+            delta = np.array([cos_b * delta[0] + sin_b * delta[1],
+                              -sin_b * delta[0] + cos_b * delta[1],
+                              delta[2]])
+        target_yaw = target_yaw - self.base_yaw
         # The wrist-pitch joint must sit WRIST_TO_TOOL above the tool target.
         wrist_point = delta + np.array([0.0, 0.0, self.wrist_to_tool])
 
