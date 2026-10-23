@@ -64,5 +64,33 @@
     "lid_z_err_mm": 110.00456001359294,
     "can_disp_mm": 124.2248903603217,
     "can_tilt_deg": 0.0010990524385825463
+  },
+  "vision_balance": {
+    "closed_loop": {
+      "closed_loop": 1.0,
+      "disturbed": 0.0,
+      "rolled_off": 0.0,
+      "settle_abs_offset_mm": 2.724036016497255,
+      "peak_abs_offset_mm": 22.782199362903572,
+      "duration_s": 8.976
+    },
+    "closed_loop_disturbed": {
+      "closed_loop": 1.0,
+      "disturbed": 1.0,
+      "rolled_off": 0.0,
+      "settle_abs_offset_mm": 9.166930610771153,
+      "peak_abs_offset_mm": 22.782199362903572,
+      "duration_s": 8.976,
+      "peak_after_disturb_mm": 20.063898997132846,
+      "recovery_time_s": 2.872
+    },
+    "open_loop": {
+      "closed_loop": 0.0,
+      "disturbed": 0.0,
+      "rolled_off": 0.0,
+      "settle_abs_offset_mm": 68.08023492655144,
+      "peak_abs_offset_mm": 68.08564430325364,
+      "duration_s": 8.976
+    }
   }
 }

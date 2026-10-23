@@ -25,6 +25,7 @@ from typing import Dict, List
 
 import numpy as np
 
+import ball_balance as bb
 import bimanual as bm
 
 ROOT = Path(__file__).resolve().parent
@@ -62,9 +63,15 @@ def run() -> Dict:
     print("3/4 single-arm baseline ...")
     single = bm.run_single_arm_lift(verbose=True)
 
-    print("4/4 lid close one-hand vs two-hand ...")
+    print("4/5 lid close one-hand vs two-hand ...")
     lid_one = bm.run_lid_close(two_handed=False, verbose=True)
     lid_two = bm.run_lid_close(two_handed=True, verbose=True)
+
+    print("5/5 vision-guided ball-balancing (closed / disturbed / open) ...")
+    balance_closed = bb.run_balance(closed_loop=True, verbose=True, return_trace=True)
+    balance_shift = bb.run_balance(closed_loop=True, disturb_at=3.0, verbose=True,
+                                   return_trace=True)
+    balance_open = bb.run_balance(closed_loop=False, verbose=True, return_trace=True)
 
     results = {
         "cooperative_lift_sync": {
@@ -77,9 +84,20 @@ def run() -> Dict:
         "single_arm_lift": single,
         "lid_close_one_hand": lid_one,
         "lid_close_two_hand": lid_two,
+        "vision_balance": {
+            "closed_loop": balance_closed,
+            "closed_loop_disturbed": balance_shift,
+            "open_loop": balance_open,
+        },
     }
     RESULTS_DIR.mkdir(exist_ok=True)
-    (RESULTS_DIR / "bimanual_results.json").write_text(json.dumps(results, indent=2))
+    # The per-tick offset traces are kept in memory for the figure but stripped from the
+    # JSON summary so it stays a compact results table.
+    serialisable = json.loads(json.dumps(results))
+    for run_key in serialisable["vision_balance"].values():
+        run_key.pop("trace_t", None)
+        run_key.pop("trace_offset_mm", None)
+    (RESULTS_DIR / "bimanual_results.json").write_text(json.dumps(serialisable, indent=2))
     print(f"\nwrote {RESULTS_DIR / 'bimanual_results.json'}")
     return results
 
@@ -131,8 +149,35 @@ def make_figures(results: Dict) -> None:
     fig.tight_layout()
     fig.savefig(FIGURES_DIR / "bimanual_tilt_comparison.png", dpi=160)
     plt.close(fig)
-    print(f"wrote {FIGURES_DIR / 'bimanual_desync_sweep.png'} and "
-          f"{FIGURES_DIR / 'bimanual_tilt_comparison.png'}")
+
+    # Figure 3: vision-guided ball-balancing - ball offset vs time for the three runs.
+    vb = results["vision_balance"]
+    closed, shift, openl = (vb["closed_loop"], vb["closed_loop_disturbed"],
+                            vb["open_loop"])
+    fig, ax = plt.subplots(figsize=(6.6, 4.0))
+    ax.axhspan(-bb.RECENTRE_BAND * 1000, bb.RECENTRE_BAND * 1000, color="#2a78d6",
+               alpha=0.08, label="re-centred band")
+    ax.plot(openl["trace_t"], openl["trace_offset_mm"], color="#999999", lw=1.8,
+            label="open loop (no feedback)")
+    ax.plot(closed["trace_t"], closed["trace_offset_mm"], color="#2a78d6", lw=1.8,
+            label="closed loop (vision)")
+    ax.plot(shift["trace_t"], shift["trace_offset_mm"], color="#eb6834", lw=1.8,
+            label="closed loop + CoM shift")
+    ax.axvspan(3.0, 3.0 + bb.DISTURB_DURATION, color="#eb6834", alpha=0.15)
+    ax.annotate("CoM shift", xy=(3.0 + bb.DISTURB_DURATION / 2, ax.get_ylim()[1]),
+                xytext=(3.3, 52), color="#eb6834", fontsize=9)
+    ax.axhline(0, color="k", lw=0.6, alpha=0.5)
+    ax.set_xlabel("time (s)")
+    ax.set_ylabel("ball offset from tray centre (mm)")
+    ax.set_title("Vision closes the loop: the ball is held centred and a shift is rejected")
+    ax.grid(alpha=0.25)
+    ax.legend(loc="center right", fontsize=8)
+    fig.tight_layout()
+    fig.savefig(FIGURES_DIR / "bimanual_ball_balance.png", dpi=160)
+    plt.close(fig)
+    print(f"wrote {FIGURES_DIR / 'bimanual_desync_sweep.png'}, "
+          f"{FIGURES_DIR / 'bimanual_tilt_comparison.png'} and "
+          f"{FIGURES_DIR / 'bimanual_ball_balance.png'}")
 
 
 if __name__ == "__main__":
