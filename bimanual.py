@@ -144,8 +144,10 @@ class CooperativeLiftController:
         elif phase == "lower":
             for name in arms:
                 col = self.column[name]
-                down = np.array([col[0], col[1], sim.TABLE_TOP_Z + da.PAYLOAD_HALF[2]
-                                 + 0.01])
+                # Lower until the payload is resting flush on the table (its rest height),
+                # so opening the grippers sets it down rather than dropping it from a
+                # centimetre up.
+                down = np.array([col[0], col[1], da.PAYLOAD_REST_Z])
                 self.trajectories[name] = _ArmTraj(self._anchor[name], down, GRASP_YAW,
                                                    self.closed_gap, self.closed_gap)
         else:  # release

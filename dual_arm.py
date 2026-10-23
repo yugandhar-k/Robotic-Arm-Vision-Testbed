@@ -172,6 +172,58 @@ def lid_objects_xml() -> str:
     </body>"""
 
 
+# ---------------------------------------------------------------------------
+# Vision-guided ball-balancing task: the two arms jointly hold a tray (a flat board with
+# side rails and a graspable post at each end) with a free ball on it, and must keep the
+# ball centred by tilting the tray in a coordinated way - the ball rolls off the open ends
+# if the tray is not actively levelled. This is a bimanual ball-and-beam closed with
+# vision from a fixed camera.
+# ---------------------------------------------------------------------------
+TRAY_HALF: Tuple[float, float, float] = (0.070, 0.060, 0.006)   # board half-extents
+TRAY_RAIL_HALF_Z: float = 0.010                                 # low side walls (keep y)
+TRAY_TAB_HALF: Tuple[float, float, float] = (0.012, 0.016, 0.022)  # graspable end posts
+# End posts stick out 30 mm beyond the board edge, so the grips land at world x ~ 0.10 and
+# 0.30 - a comfortable reach distance for both arms - and the gripper palms clear the board.
+TRAY_GRIP_OFFSET_X: float = TRAY_HALF[0] + 0.030
+TRAY_DENSITY: float = 300.0
+TRAY_REST_Z: float = sim.TABLE_TOP_Z + TRAY_HALF[2]
+TRAY_TAB_CENTRE_DZ: float = TRAY_HALF[2] + TRAY_TAB_HALF[2]     # post centre above origin
+BALL_R: float = 0.020
+BALL_DENSITY: float = 220.0
+BALL_START_X: float = 0.022                                     # starts off-centre on tray
+BALL_REST_Z: float = sim.TABLE_TOP_Z + 2 * TRAY_HALF[2] + BALL_R
+
+
+def tray_ball_objects_xml() -> str:
+    cx, cy = WORKSPACE_CENTRE
+    return f"""    <!-- ball-balancing task: a two-arm-held tray with a free ball on it -->
+    <body name="tray" pos="{cx} {cy} {TRAY_REST_Z}">
+      <freejoint name="tray_free"/>
+      <geom name="tray_board" type="box" material="payload"
+            size="{TRAY_HALF[0]} {TRAY_HALF[1]} {TRAY_HALF[2]}"
+            density="{TRAY_DENSITY}" condim="4" friction="0.6 0.03 0.002" solref="0.006 1"/>
+      <geom name="tray_rail_py" type="box" material="payload"
+            pos="0 {TRAY_HALF[1] - 0.003} {TRAY_HALF[2] + TRAY_RAIL_HALF_Z}"
+            size="{TRAY_HALF[0]} 0.003 {TRAY_RAIL_HALF_Z}" density="{TRAY_DENSITY}"/>
+      <geom name="tray_rail_ny" type="box" material="payload"
+            pos="0 {-(TRAY_HALF[1] - 0.003)} {TRAY_HALF[2] + TRAY_RAIL_HALF_Z}"
+            size="{TRAY_HALF[0]} 0.003 {TRAY_RAIL_HALF_Z}" density="{TRAY_DENSITY}"/>
+      <geom name="tray_tab_l" type="box" material="accent"
+            pos="{-TRAY_GRIP_OFFSET_X} 0 {TRAY_TAB_CENTRE_DZ}"
+            size="{TRAY_TAB_HALF[0]} {TRAY_TAB_HALF[1]} {TRAY_TAB_HALF[2]}"
+            density="{TRAY_DENSITY}" condim="4" friction="1.8 0.10 0.01"/>
+      <geom name="tray_tab_r" type="box" material="accent"
+            pos="{TRAY_GRIP_OFFSET_X} 0 {TRAY_TAB_CENTRE_DZ}"
+            size="{TRAY_TAB_HALF[0]} {TRAY_TAB_HALF[1]} {TRAY_TAB_HALF[2]}"
+            density="{TRAY_DENSITY}" condim="4" friction="1.8 0.10 0.01"/>
+    </body>
+    <body name="ball" pos="{cx + BALL_START_X} {cy} {BALL_REST_Z}">
+      <freejoint name="ball_free"/>
+      <geom name="ball_geom" type="sphere" material="lens" size="{BALL_R}"
+            density="{BALL_DENSITY}" condim="4" friction="0.6 0.05 0.015" solref="0.006 1"/>
+    </body>"""
+
+
 
 def build_dual_arm_mjcf(objects_xml: Optional[str] = None) -> str:
     """Return the MJCF for the two-arm facing-each-other scene.
